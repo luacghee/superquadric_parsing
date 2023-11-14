@@ -103,9 +103,9 @@ def main(argv):
             .build(args.dataset_directory)),
         voxelizer_factory,
         args.n_points_from_mesh,
-        n_bbox=args.n_bbox,
-        n_surface=args.n_surface,
-        equal=args.equal,
+        # n_bbox=args.n_bbox,
+        # n_surface=args.n_surface,
+        # equal=args.equal,
         transform=compose_transformations(voxelizer_factory)
     )
 

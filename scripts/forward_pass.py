@@ -28,6 +28,8 @@ from learnable_primitives.primitives import\
     euler_angles_to_rotation_matrices, quaternions_to_rotation_matrices
 from learnable_primitives.voxelizers import VoxelizerFactory
 
+from learnable_primitives.volumetric_iou import eval_iou
+
 from mayavi import mlab
 
 
@@ -92,6 +94,11 @@ def main(argv):
         "--with_animation",
         action="store_true",
         help="Add animation"
+    )
+    parser.add_argument(
+        "--save_img",
+        action="store_true",
+        help="Save snapshot"
     )
 
     add_dataset_parameters(parser)
@@ -187,15 +194,16 @@ def main(argv):
 
         on_prims = 0
         fig = mlab.figure(size=(400, 400), bgcolor=(1, 1, 1))
-        mlab.view(azimuth=0.0, elevation=0.0, distance=2)
-        # Uncomment to visualize the points sampled from the target mesh
+        # mlab.view(azimuth=0.0, elevation=0.0, distance=2)
+        mlab.view(azimuth=-30, elevation=255, distance=2)
+        # # Uncomment to visualize the points sampled from the target mesh
         # t = np.array([1.2, 0, 0]).reshape(3, -1)
         # pts_n = pts + t
-        #     mlab.points3d(
-        #        # pts_n[0], pts_n[1], pts_n[2],
-        #        pts[0], pts[1], pts[2],
-        #        scale_factor=0.03, color=(0.8, 0.8, 0.8)
-        #     )
+        # mlab.points3d(
+        #     # pts_n[0], pts_n[1], pts_n[2],
+        #     pts[0], pts[1], pts[2],
+        #     scale_factor=0.03, color=(0.8, 0.8, 0.8)
+        # )
 
         # Keep track of the files containing the parameters of each primitive
         primitive_files = []
@@ -251,10 +259,23 @@ def main(argv):
                         "img_%04d.png" % (cnt,)
                     )
                 )
+
+        if args.save_img:
+                mlab.savefig(
+                    os.path.join(
+                        args.output_directory,
+                        "img.png"
+                    )
+                ) 
+
         for i in range(args.n_primitives):
             print i, probs[0, i]
 
         print "Using %d primitives out of %d" % (on_prims, args.n_primitives)
+
+        torch.set_printoptions(profile="full")
+    
+
         mlab.show()
 
         if args.save_prediction_as_mesh:
@@ -266,7 +287,6 @@ def main(argv):
             print "Saved prediction as ply file in {}".format(
                 os.path.join(args.output_directory, "primitives.ply")
             )
-
 
 if __name__ == "__main__":
     main(sys.argv[1:])

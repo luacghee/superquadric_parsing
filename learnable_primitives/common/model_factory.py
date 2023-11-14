@@ -9,6 +9,7 @@ import pickle
 from PIL import Image
 
 from ..mesh import MeshFactory
+import OpenEXR
 
 
 class BaseModel(object):
@@ -28,7 +29,9 @@ class BaseModel(object):
         # A numpy array containing the TSDF
         self._tsdf = None
         # A list containing the images
-        self._images = []
+        self._images_rgb = []
+        self._images_rgbd = [] # Added for RGB-D
+
         self._points_on_surface = None
         # Variable to cache mesh internal points
         self._internal_points = None
@@ -73,21 +76,72 @@ class BaseModel(object):
     def _n_images(self):
         return len(os.listdir(self.images_dir))
 
+    
     @property
-    def images(self):
-        if not self._images:
-            for path_to_img in sorted(os.listdir(self.images_dir)):
+    def images_rgb(self):
+        if not self._images_rgb:
+            for path_to_img in sorted(os.listdir(self.images_dir)):                
                 if path_to_img.endswith((".jpg", ".png")):
                     image_path = os.path.join(self.images_dir, path_to_img)
-                    self._images.append(
+                    self._images_rgb.append(
                         np.array(Image.open(image_path).convert("RGB"))
                     )
-        return self._images
+
+        return self._images_rgb
+    
+    @property # Added for RGB-D
+    def images_rgbd(self):
+        if not self._images_rgbd:
+            for path_to_img in sorted(os.listdir(self.images_dir)):                
+                if path_to_img.endswith((".jpg", ".png")):
+                    image_path = os.path.join(self.images_dir, path_to_img)
+                    rgb_arr = np.array(Image.open(image_path).convert("RGB"))
+
+                if path_to_img.endswith((".exr")):
+                    image_depth_path = os.path.join(self.images_dir, path_to_img)
+
+                    # EXR conversion reference: https://gist.github.com/andres-fr/4ddbb300d418ed65951ce88766236f9c
+                    # load EXR and extract shape
+                    exr = OpenEXR.InputFile(image_depth_path)
+                    dw = exr.header()["dataWindow"]
+                    shape = (dw.max.y - dw.min.y + 1, dw.max.x - dw.min.x + 1)
+
+                    arr_maps = {}
+                    typemap={"HALF": np.float16, "FLOAT": np.float32}                    
+                    for ch_name, ch in exr.header()["channels"].items():
+                        # This, and __str__ seem to be the only ways to get typename
+                        exr_typename = ch.type.names[ch.type.v]
+                        np_type = typemap[exr_typename]
+                        # convert channel to np array
+                        bytestring = exr.channel(ch_name, ch.type)
+                        arr = np.frombuffer(bytestring, dtype=np_type).reshape(shape)
+                        arr_maps[ch_name] = arr
+
+                    rgb_equal = ((arr_maps["R"] == arr_maps["G"]).all() and
+                                (arr_maps["R"] == arr_maps["B"]).all())
+                    assert rgb_equal, "this function assumes that R, G, B must be identical!"
+
+                    depth_arr = arr_maps["R"].astype(np.float32)
+
+
+            inf_indices = depth_arr == np.inf
+            depth_arr[inf_indices] = -1
+
+            image_rgbd = np.dstack((rgb_arr, depth_arr))
+            self._images_rgbd.append(image_rgbd)
+
+
+        return self._images_rgbd
 
     @property
     def random_image(self):
-        ri = np.random.choice(len(self.images))
-        return self.images[ri]
+        ri = np.random.choice(len(self.images_rgb))
+        return self._images_rgb[ri]
+
+    @property # Added for RGB-D
+    def random_image_rgbd(self):
+        ri = np.random.choice(len(self.images_rgbd))
+        return self._images_rgbd[ri]
 
 
 class ModelsCollection(object):
@@ -130,7 +184,6 @@ class ShapeNetQuad(ModelsCollection):
     def __init__(self, base_dir):
         self._tags = sorted(os.listdir(base_dir))
         self._paths = [os.path.join(base_dir, x) for x in self._tags]
-
         print "Found {} 'ShapeNetQuad' models".format(len(self))
 
     def __len__(self):
@@ -142,7 +195,6 @@ class ShapeNetQuad(ModelsCollection):
             os.path.join(self._paths[i], "model.obj"),
             None
         )
-
 
 class ShapeNetV1(ModelsCollection):
     def __init__(self, base_dir):
@@ -162,7 +214,7 @@ class ShapeNetV1(ModelsCollection):
             self._tags[i],
             os.path.join(self._paths[i], "model_watertight.off"),
             None,
-            images_dir=os.path.join(self._paths[i], "img_choy2016")
+            images_dir=os.path.join(self._paths[i], "img_choy2016")        
         )
 
 
@@ -183,7 +235,8 @@ class ShapeNetV2(ModelsCollection):
         return BaseModel(
             self._tags[i],
             os.path.join(self._paths[i], "models", "model_normalized.obj"),
-            None
+            None,
+            images_dir = os.path.join(self._paths[i], "rgbd") # Modified for RGB-D
         )
 
 

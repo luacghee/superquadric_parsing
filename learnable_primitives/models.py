@@ -4,6 +4,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
 from torchvision import models
+from torch.utils.checkpoint import checkpoint
 
 
 class NetworkParameters(object):
@@ -60,7 +61,8 @@ class NetworkParameters(object):
         networks = dict(
             tulsiani=TulsianiNetwork,
             octnet=OctnetNetwork,
-            resnet18=ResNet18
+            resnet18=ResNet18,
+            rednet=RedNet
         )
 
         return networks[self.architecture.lower()]
@@ -193,7 +195,168 @@ class ResNet18(nn.Module):
     def forward(self, X):
         X = X.float() / 255.0
         x = self._features_extractor(X)
+
         return self._primitive_layer(x.view(-1, 512, 1, 1, 1))
+
+# Added for RGB-D
+class RedNet(nn.Module):
+    def __init__(self, network_params):
+        super(RedNet, self).__init__()
+        self._network_params = network_params
+
+        block = Bottleneck
+        layers = [3, 4, 6, 3, 3]
+        # original resnet
+        self.inplanes = 64
+        self.conv1 = nn.Conv2d(3, 64, kernel_size=7, stride=2, padding=3,
+                               bias=False)
+        self.bn1 = nn.BatchNorm2d(64)
+        self.relu = nn.ReLU(inplace=True)
+        self.maxpool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
+        self.layer1 = self._make_layer(block, 64, layers[0])
+        self.layer2 = self._make_layer(block, 128, layers[1], stride=2)
+        self.layer3 = self._make_layer(block, 256, layers[2], stride=2)
+        self.layer4 = self._make_layer(block, 512, layers[3], stride=2)
+        self.layer5 = self._make_layer(block, 512, layers[4], stride=5)
+
+        # resnet for depth channel
+        self.inplanes = 64
+        self.conv1_d = nn.Conv2d(1, 64, kernel_size=7, stride=2, padding=3,
+                                 bias=False)
+        self.bn1_d = nn.BatchNorm2d(64)
+        self.layer1_d = self._make_layer(block, 64, layers[0])
+        self.layer2_d = self._make_layer(block, 128, layers[1], stride=2)
+        self.layer3_d = self._make_layer(block, 256, layers[2], stride=2)
+        self.layer4_d = self._make_layer(block, 512, layers[3], stride=2)
+        self.layer5_d = self._make_layer(block, 512, layers[4], stride=5)
+
+        self.agant4 = self._make_agant_layer(512 * 4, 512)
+
+        self._primitive_layer = self._network_params.primitive_layer(
+            self._network_params.n_primitives,
+            512
+        )
+
+
+    def _make_layer(self, block, planes, blocks, stride=1):
+        downsample = None
+        if stride != 1 or self.inplanes != planes * block.expansion:
+            downsample = nn.Sequential(
+                nn.Conv2d(self.inplanes, planes * block.expansion,
+                          kernel_size=1, stride=stride, bias=False),
+                nn.BatchNorm2d(planes * block.expansion),
+            )
+
+        layers = []
+        layers.append(block(self.inplanes, planes, stride, downsample))
+        self.inplanes = planes * block.expansion
+        for i in range(1, blocks):
+            layers.append(block(self.inplanes, planes))
+
+        return nn.Sequential(*layers)
+    
+    
+    def _make_agant_layer(self, inplanes, planes):
+
+        layers = nn.Sequential(
+            nn.Conv2d(inplanes, planes, kernel_size=1,
+                      stride=1, padding=0, bias=False),
+            nn.BatchNorm2d(planes),
+            nn.ReLU(inplace=True)
+        )
+        return layers
+
+    def forward_downsample(self, rgb, depth):
+        x = self.conv1(rgb)
+        x = self.bn1(x)
+        x = self.relu(x)
+        depth = self.conv1_d(depth)
+        depth = self.bn1_d(depth)
+        depth = self.relu(depth)
+
+        fuse0 = x + depth
+
+        x = self.maxpool(fuse0)
+        depth = self.maxpool(depth)
+
+        # block 1
+        x = self.layer1(x)
+        depth = self.layer1_d(depth)
+        fuse1 = x + depth
+
+        # block 2
+        x = self.layer2(fuse1)
+        depth = self.layer2_d(depth)
+        fuse2 = x + depth
+
+        # block 3
+        x = self.layer3(fuse2)
+        depth = self.layer3_d(depth)
+        fuse3 = x + depth
+
+        # block 4
+        x = self.layer4(fuse3)
+        depth = self.layer4_d(depth)
+        fuse4 = x + depth
+
+        # block 5
+        x = self.layer5(fuse4)
+        depth = self.layer5_d(depth)
+        fuse5 = x + depth
+
+        x = self.agant4(fuse5)
+
+        return x
+    
+
+    def forward(self, X):
+        rgb = X[:,0:3,:,:]
+        depth = X[:,3:4,:,:]
+        x = self.forward_downsample(rgb, depth)
+
+        return self._primitive_layer(x.view(-1, 512, 1, 1, 1))
+
+
+
+
+
+class Bottleneck(nn.Module):
+    expansion = 4
+
+    def __init__(self, inplanes, planes, stride=1, downsample=None):
+        super(Bottleneck, self).__init__()
+        self.conv1 = nn.Conv2d(inplanes, planes, kernel_size=1, bias=False)
+        self.bn1 = nn.BatchNorm2d(planes)
+        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride,
+                               padding=1, bias=False)
+        self.bn2 = nn.BatchNorm2d(planes)
+        self.conv3 = nn.Conv2d(planes, planes * 4, kernel_size=1, bias=False)
+        self.bn3 = nn.BatchNorm2d(planes * 4)
+        self.relu = nn.ReLU(inplace=True)
+        self.downsample = downsample
+        self.stride = stride
+
+    def forward(self, x):
+        residual = x
+
+        out = self.conv1(x)
+        out = self.bn1(out)
+        out = self.relu(out)
+
+        out = self.conv2(out)
+        out = self.bn2(out)
+        out = self.relu(out)
+
+        out = self.conv3(out)
+        out = self.bn3(out)
+
+        if self.downsample is not None:
+            residual = self.downsample(x)
+
+        out += residual
+        out = self.relu(out)
+
+        return out
 
 
 class Translation(nn.Module):

@@ -277,6 +277,10 @@ def main(argv):
         args.n_points_from_mesh,
         transform=compose_transformations(args.voxelizer_factory)
     )
+    # idx1 == number of Shapenet models    
+    # Should be intput: training_dataset[idx1][0].size() = (1, 32, 32, 32)
+    # Should be mesh points: training_dataset[idx1][1].size() = (1000, 6)
+
     # Create a batchprovider object to start generating batches
     train_bp = BatchProvider(
         training_dataset,
@@ -311,6 +315,9 @@ def main(argv):
             args.steps_per_epoch
         )
         for b, sample in izip(range(args.steps_per_epoch), yield_infinite(train_bp)):
+            # sample is a tuple
+            # X: sample[0]; (32, 1, 32, 32, 32)
+            # y_target: sample[1]; (32, 1000, 6)
             X, y_target = sample
             X, y_target = X.to(device), y_target.to(device)
 

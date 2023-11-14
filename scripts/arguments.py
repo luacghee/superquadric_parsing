@@ -5,7 +5,8 @@ def add_voxelizer_parameters(parser):
         choices=[
             "occupancy_grid",
             "tsdf_grid",
-            "image"
+            "image",
+            "image_rgbd" # Added for RGB-D
         ],
         default="occupancy_grid",
         help="The voxelizer factory to be used (default=occupancy_grid)"
@@ -27,6 +28,12 @@ def add_voxelizer_parameters(parser):
         type=lambda x: tuple(map(int, x.split(","))),
         default="3,137,137",
         help="The dimensionality of the voxel grid (default=(3,137,137)"
+    )
+    parser.add_argument( # Added for RGB-D
+        "--image_rgbd_shape",
+        type=lambda x: tuple(map(int, x.split(","))),
+        default="4,137,137",
+        help="The dimensionality of the voxel grid (default=(4,137,137)"
     )
 
 
@@ -50,7 +57,7 @@ def add_training_parameters(parser):
     parser.add_argument(
         "--batch_size",
         type=int,
-        default=32,
+        default=16,
         help="Number of samples in a batch (default=32)"
     )
     parser.add_argument(
@@ -119,7 +126,7 @@ def add_nn_parameters(parser):
     """
     parser.add_argument(
         "--architecture",
-        choices=["tulsiani", "octnet", "resnet18"],
+        choices=["tulsiani", "octnet", "resnet18", "rednet"],
         default="tulsiani",
         help="Choose the architecture to train"
     )
@@ -298,6 +305,8 @@ def voxelizer_shape(args):
         return args.grid_shape
     elif args.voxelizer_factory == "image":
         return args.image_shape
+    elif args.voxelizer_factory == "image_rgbd": # Added for RGB-D
+        return args.image_rgbd_shape    
     elif args.voxelizer_factory == "tsdf_grid":
         return (args.resolution,)*3
 

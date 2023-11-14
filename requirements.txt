@@ -10,6 +10,7 @@ Pillow
 pyquaternion
 backports.functools_lru_cache
 sympy
+OpenEXR # Added to read depth files
 
 # Visualization
 matplotlib

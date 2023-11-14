@@ -27,6 +27,7 @@ class BaseDataset(Dataset):
         self._dataset_object = dataset_object
         print "%d models in total ..." % (len(self._dataset_object))
 
+
         # Number of samples to use for supervision
         self._n_points_from_mesh = n_points_from_mesh
         # Get the voxelizer to be used
@@ -43,6 +44,7 @@ class BaseDataset(Dataset):
 
     def __getitem__(self, idx):
         m = self._dataset_object[idx]
+        # print("=x=x=x=x=x=x=x=")
         # print m.path_to_mesh_file
         # print m.path_to_tsdf_file
         X = self._voxelizer.get_X(m)
@@ -166,13 +168,39 @@ class Normalize(object):
             std=[0.229, 0.224, 0.225]
         )
         X = X.float() / 255.0
+
         return (normalize(X), y_target)
+
+# Added for RGB-D
+class Normalize_rgbd(object):
+    """Normalize image based based on ImageNet."""
+    def __call__(self, sample):
+        X, y_target = sample
+
+
+        X_rgb = X[0:3,:,:].float()
+        X_depth =  X[3:4,:,:].float()
+
+
+        # The normalization will only affect X
+        normalize = TorchNormalize(
+            mean=[0.485, 0.456, 0.406],
+            std=[0.229, 0.224, 0.225]
+        )
+        X_rgb = X_rgb.float() / 255.0
+        X_rgb = normalize(X_rgb)
+
+        X = torch.cat((X_rgb, X_depth))
+
+        return (X, y_target)
 
 
 def compose_transformations(voxelizer_factory):
     transformations = [ToTensor()]
-    if voxelizer_factory == "image":
+    if voxelizer_factory == "image" :
         transformations.append(Normalize())
+    elif voxelizer_factory == "image_rgbd" : # Added for RGB-D
+        transformations.append(Normalize_rgbd())
 
     return transforms.Compose(transformations)
 

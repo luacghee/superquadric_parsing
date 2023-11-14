@@ -8,7 +8,7 @@ from .utils.pcl_voxelization import get_voxel_grid
 class VoxelizerFactory(object):
     def __init__(self, voxelizer, output_shape, save_voxels_to=None):
         if not isinstance(voxelizer, str) or\
-               voxelizer not in ["tsdf_grid", "occupancy_grid", "image"]:
+               voxelizer not in ["tsdf_grid", "occupancy_grid", "image", "image_rgbd"]: # Added for RGB-D
                     raise AttributeError("The voxelizer is invalid")
         if not isinstance(output_shape, np.ndarray):
             raise ValueError(
@@ -29,7 +29,8 @@ class VoxelizerFactory(object):
             return OccupancyGrid(self.output_shape, None, self._save_voxels_to)
         elif self._voxelizer == "image":
             return ImagePrecomputed(self.output_shape)
-
+        elif self._voxelizer == "image_rgbd": # Added for RGB-D
+            return ImagePrecomputed_RGBD(self.output_shape)
 
 class OccupancyGrid(object):
     """OccupancyGrid class is a wrapper for the occupancy grid.
@@ -133,6 +134,13 @@ class ImagePrecomputed(PrecomputedVoxelizer):
         # Transpose image to have the right size for pytorch
         return np.transpose(X, (2, 0, 1))
 
+# Added for RGB-D
+class ImagePrecomputed_RGBD(PrecomputedVoxelizer):
+    def get_X(self, model):
+        X = model.random_image_rgbd 
+        # Transpose image to have the right size for pytorch
+        return np.transpose(X, (2, 0, 1))
+    
 
 class TSDFPrecomputed(PrecomputedVoxelizer):
     @property

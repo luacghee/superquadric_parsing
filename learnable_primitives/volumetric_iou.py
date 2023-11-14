@@ -5,6 +5,7 @@ from .primitives import transform_to_primitives_centric_system,\
     inside_outside_function, points_to_cuboid_distances
 
 
+
 def broadcast_cross(a, b):
     a1, a2, a3 = a[..., 0], a[..., 1], a[..., 2]
     b1, b2, b3 = b[..., 0], b[..., 1], b[..., 2]
@@ -73,7 +74,7 @@ def _test_inside_mesh():
         def b(p):
             return (0.3 < p) * (p < 0.6)
         return b(P[:, 0]) * b(P[:, 1]) * b(P[:, 2])
-    cube = torch.FloatTensor([
+    cube = torch.tensor([
                [0.3, 0.3, 0.3],
                [0.3, 0.3, 0.6],
                [0.3, 0.6, 0.3],
@@ -92,13 +93,63 @@ def _test_inside_mesh():
     mask1 = in_cube(P)
     mask2 = inside_mesh(P, triangles)
 
+
     # The ratio of the volume of the unit cube to the 0.3^3 cube is 0.027.
     d1 = 0.027 - mask1.sum().item() / 100000
     d2 = 0.027 - mask2.sum().item() / 100000
 
+    d1 = d1 / 100
+    d2 = d2 / 100
+    print("d1: " + str(d1))
+    print("d2: " + str(d2))
     assert -0.0005 < d1 < 0.0005
     assert -0.0005 < d2 < 0.0005
 
+
+# Referenced from https://github.com/paschalidoud/hierarchical_primitives.git
+def compute_iou(occ1, occ2, weights=None, average=True):
+    """Compute the intersection over union (IoU) for two sets of occupancy
+    values.
+
+    Arguments:
+    ----------
+        occ1: Tensor of size BxN containing the first set of occupancy values
+        occ2: Tensor of size BxN containing the first set of occupancy values (target_labels)
+
+    Returns:
+    -------
+        the IoU
+    """
+
+    if not torch.is_tensor(occ1):
+        occ1 = torch.tensor(occ1)
+        occ2 = torch.tensor(occ2)
+
+    if weights is None:
+        weights = occ1.new_ones(occ1.shape)
+
+    weights = weights.float()
+    assert len(occ1.shape) == 2
+    assert occ1.shape == occ2.shape
+
+    # Convert them to boolean
+    occ1 = occ1 >= 0.5
+    occ2 = occ2 >= 0.5
+
+
+    # Compute IoU0
+    area_union = (occ1 | occ2).float()
+    area_union = (weights * area_union).sum(dim=-1)
+    area_union = torch.max(area_union.new_tensor(1.0), area_union)
+    area_intersect = (occ1 & occ2).float()
+    area_intersect = (weights * area_intersect).sum(dim=-1)
+    iou = (area_intersect / area_union)
+
+    if average:
+        return iou.mean().item()
+    else:
+        return iou
+    
 
 def inside_sqs(P, y_hat, use_cuboids=False, use_sq=False, prob_threshold=0.5):
     """
@@ -112,13 +163,15 @@ def inside_sqs(P, y_hat, use_cuboids=False, use_sq=False, prob_threshold=0.5):
         M: Boolean mask with points are inside the SQs
     """
     # Make sure that everything has the right shape
+    
+    # P = torch.rand(100000, 3)
+    
     assert P.shape[-1] == 3
 
     # Declare some variables
     B = P.shape[0]  # batch size
     N = P.shape[1]  # number of points per sample
     M = y_hat[0].shape[1]  # number of primitives
-
     probs = y_hat[0]
     translations = y_hat[1].view(B, M, 3)
     rotations = y_hat[2].view(B, M, 4)
@@ -150,3 +203,18 @@ def inside_sqs(P, y_hat, use_cuboids=False, use_sq=False, prob_threshold=0.5):
 
     # For every row if a column is 1.0 then that point is inside the SQs
     return inside.any(dim=-1)
+
+
+def eval_iou(y_target, y_hat, use_sq=False):
+    pts = y_target[:, :, :3]
+    pts_labels = y_target[:, :, -1].to("cpu").squeeze().numpy()
+
+    if use_sq == True:
+        occ1 = inside_sqs(pts, y_hat, use_sq=True)
+    else:
+        occ1 = inside_sqs(pts, y_hat, use_cuboids=True)
+
+    occ2 = torch.tensor([pts_labels])
+    iou = compute_iou(occ1, occ2)
+
+    return iou
