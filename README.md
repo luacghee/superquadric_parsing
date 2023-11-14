@@ -1,5 +1,7 @@
 ## 
 
+ME6401 Topics in Mechatronics I Robot Imagination Group 12 Submission
+----------------------------
 This repository consist of the submission for ME6401 Topics in Mechatronics I Robot Imagination. The contribution of this assignment extends the work of 
 [Superquadrics Revisited: Learning 3D Shape Parsing beyond Cuboids](https://arxiv.org/pdf/1904.09970.pdf) with a modified RGB-D encoder from [RedNet: Residual Encoder-Decoder Network for indoor RGB-D Semantic Segmentation](https://arxiv.org/pdf/1806.01054.pdf). Most of the code for this assignment were forked from the former publication. As of now, the results only evaluates on the [ShapeNet](https://shapenet.org/) dataset.
 
